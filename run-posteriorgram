@@ -1,0 +1,4 @@
+#!/bin/sh
+
+cd single
+./run-posteriorgram $1 2>/dev/null
