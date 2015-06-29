@@ -197,7 +197,7 @@ function cog_files{S<:String}(filelist::Vector{S})
 end
 
 ## main
-if ! isinteractive() && myid == 1
+if ! isinteractive() && myid() == 1
     for file in ARGS
         println("Processing ", file)
         outf, nr = listen(file)
