@@ -2,6 +2,13 @@
 
 using WAV
 using MFCC
+using DataFrames
+
+function wavfilter(xsr)
+    (x, sr) = xsr
+    return (vec(mean(x,2)), float(sr))
+end
+    
 
 function readpost(file)
     fd = open(file)
@@ -84,15 +91,6 @@ end
 
 limit(x, mi, ma) = max(mi, min(ma, x))
 
-## center of gravity
-function cog(p, minf=0, maxf=8000)
-    p = vec(p)
-    energy = sum(p)
-    nf = size(p,1)
-    freq = [minf:(maxf-minf)/nf:maxf][1:nf]
-    return dot(p,freq) / energy
-end
-
 function startstop(sel, collar, sr, L)
     limit(iround((sel[1]/100 - collar)*sr), 1, L), limit(iround((sel[2]/100 + collar)*sr), 1, L)
 end
@@ -146,19 +144,64 @@ function listen(file::String, phone=["s", "sh"], thres=0.5)
     return outf, nr
 end
 
+## center of gravity for a slice of a power spec
+function cog(p; minf=0, maxf=8000)
+    p = vec(p)
+    energy = sum(p)
+    nf = size(p,1)
+    freq = [minf:(maxf-minf)/nf:maxf][1:nf]
+    return dot(p,freq) / energy
+end
+
 function compute_cog_selection(x, s, sr=16000)
-    p = powspec(vec(x), sr)
+    p = powspec(vec(x), sr, steptime=0.01, wintime=0.03)
     L = size(p,2)
-    for i in 1:size(s,1)
-        slice = mean(p[:,limit(s[i,1],1,L):limit(s[i,2],1,L)], 2)
-        println("line ", s[i,1], " cog ", cog(slice))
+    nsel = size(s, 1)
+    res = Array(Float64, nsel)
+    for i in 1:nsel
+        if s[i,2]-2 ≥ s[i,1]    # require minimum suration of 3 frames for powerspec computation
+            slice = mean(p[:,limit(s[i,1],1,L):limit(s[i,2]-2,1,L)], 2)
+            res[i] = cog(slice, maxf=sr/2)
+        else
+            res[i] = NaN
+        end
+    end
+    res
+end
+
+## reads a .s.sel file from disc and the corresponding sound file
+function readsel(file::String)
+    sel = readdlm(file)
+    wavf = unique(sel[:,1])[1]
+    sel = int(sel[:,end-1:end])
+#    tmp = tempname() * ".wav"
+#    run(`sox $wavf -r 16000 $tmp`)
+    wav, sr = wavread(wavf) |> wavfilter
+    return sel, wav, sr
+end
+
+## parallel:
+## addprocs(4)
+## @everywhere reload("posteriorgram.jl")
+
+## center-of-gravity of energy in a powerspectrum, given files
+function cog_files{S<:String}(filelist::Vector{S})
+    @parallel (vcat) for f in filelist
+        s, x, sr = readsel(f)
+        s = s[find(diff(s,2) .≥ 2), :] # only consider entries of at least 30 ms for powspec wintime
+        c = compute_cog_selection(x, s, sr)
+        subj, cohort, part = split(replace(basename(f), ".s.sel", ""), "-", 3)
+        subj, sex, r = [subj[r] for r in (1:4, 5, 6:6)]
+        DataFrame(cog=c, subject=subj, sex=sex, r=int(r), c=int(cohort), part=part)
     end
 end
 
-if ! isinteractive()
+## main
+if ! isinteractive() && myid == 1
     for file in ARGS
         println("Processing ", file)
         outf, nr = listen(file)
         println("$nr lines written to $outf")
     end
 end
+
