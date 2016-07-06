@@ -8,16 +8,17 @@ function wavfilter(xsr)
     (x, sr) = xsr
     return (vec(mean(x,2)), float(sr))
 end
-    
 
-function readpost(file)
+
+function readpost(file, phones=true)
     fd = open(file)
     nframes, nphones = read(fd, Int32, 2);
-    x = reshape(read(fd, Float32, nframes*nphones), int(nphones), int(nframes))
-    phonetab = String[]
+    x = reshape(read(fd, Float32, nframes*nphones), Int(nphones), Int(nframes))
+    phones || return x
+    phonetab = AbstractString[]
     for i=1:nphones
-        data = Uint8[]
-        while ((char=read(fd, Uint8)) != '\0')
+        data = UInt8[]
+        while ((char=read(fd, UInt8)) != '\0')
             push!(data, char)
         end
         push!(phonetab, ASCIIString(data))
@@ -25,6 +26,34 @@ function readpost(file)
     close(fd)
     x, phonetab
 end
+
+## read in a kaldi matrix
+function readark(file)
+    iterator = eachline(pipeline(`/Users/david/bin/kaldi/copy-matrix ark:$file ark,t:-`, ))
+    d = Dict{AbstractString,Matrix{Float32}}()
+    rows = Vector{Float32}[]
+    index = ""
+    for line in iterator
+        line=chomp(line)
+        if line[end] == '['
+            index = split(line)[1]
+            rows = Matrix{Float32}[]
+            continue
+        end
+        last = line[end] == ']'
+        numbers = split(line)
+        if last
+            pop!(numbers)
+        end
+        push!(rows, [parse(Float32,s) for s in numbers]')
+        if last
+            d[index] = vcat(rows...)
+        end
+    end
+    d
+end
+
+
 
 function disp(x, phonetab, norm=true)
     if norm
@@ -74,7 +103,7 @@ function phonedetect(x, phonetab, phone, thres=0.5, gap=5)
     hcat(starts, stops)
 end
 
-function phonedetect(wav::String, phone::String)
+function phonedetect(wav::AbstractString, phone::AbstractString)
     abswav = joinpath(pwd(), wav)
     print("Computing phone posteriors...")
     run(`./run-posteriorgram $abswav`)
@@ -110,7 +139,7 @@ function listen(x::Array, sel::Array; collar=0.3, sr=16000)
             play(x[colstart:colstop], sr)
             sleep(0.2)
             print("s: ")
-            play(x[start:stop], sr)            
+            play(x[start:stop], sr)
             inp = readline(STDIN)
             if inp[1] == 'r'
                 continue
@@ -122,7 +151,7 @@ function listen(x::Array, sel::Array; collar=0.3, sr=16000)
     hcat(1:nr, sel)[selection,:]
 end
 
-function listen(file::String, phone=["s", "sh"], thres=0.5)
+function listen(file::AbstractString, phone=["s", "sh"], thres=0.5)
     run(`sox $file -r 16000 single/in.wav`)
 #    abswav = joinpath(pwd(), file)
     abswav = "single/in.wav"
@@ -132,6 +161,7 @@ function listen(file::String, phone=["s", "sh"], thres=0.5)
     x, phonetab = readpost("single/out.bin")
     println("done")
     sel = phonedetect(x, phonetab, phone, thres)
+    norig = size(sel, 1)
     w, sr = wavread(abswav)
     sel = listen(w, sel, sr=sr)
     outf = "$base.s.sel"
@@ -141,7 +171,7 @@ function listen(file::String, phone=["s", "sh"], thres=0.5)
         println(fd, join(vcat(file, vec(sel[i,:])), "\t"))
     end
     close(fd)
-    return outf, nr
+    return outf, nr, norig
 end
 
 ## center of gravity for a slice of a power spec
@@ -170,7 +200,7 @@ function compute_cog_selection(x, s, sr=16000)
 end
 
 ## reads a .s.sel file from disc and the corresponding sound file
-function readsel(file::String)
+function readsel(file::AbstractString)
     sel = readdlm(file)
     wavf = unique(sel[:,1])[1]
     sel = int(sel[:,end-1:end])
@@ -185,7 +215,7 @@ end
 ## @everywhere reload("posteriorgram.jl")
 
 ## center-of-gravity of energy in a powerspectrum, given files
-function cog_files{S<:String}(filelist::Vector{S})
+function cog_files{S<:AbstractString}(filelist::Vector{S})
     @parallel (vcat) for f in filelist
         s, x, sr = readsel(f)
         s = s[find(diff(s,2) .≥ 2), :] # only consider entries of at least 30 ms for powspec wintime
@@ -200,8 +230,8 @@ end
 if ! isinteractive() && myid() == 1
     for file in ARGS
         println("Processing ", file)
-        outf, nr = listen(file)
-        println("$nr lines written to $outf")
+        outf, nr, norig = listen(file)
+        nfa = norig - nr
+        println("$nr lines written to $outf, you judged $nfa false alarms")
     end
 end
-
