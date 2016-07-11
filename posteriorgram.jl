@@ -1,5 +1,6 @@
 #!/usr/bin/env julia
 
+using Compat
 using WAV
 using MFCC
 using DataFrames
@@ -13,7 +14,7 @@ end
 function readpost(file, phones=true)
     fd = open(file)
     nframes, nphones = read(fd, Int32, 2);
-    x = reshape(read(fd, Float32, nframes*nphones), Int(nphones), Int(nframes))
+    x = reshape(read(fd, Float32, nframes*nphones), @compat Int(nphones), @compat Int(nframes))
     phones || return x
     phonetab = AbstractString[]
     for i=1:nphones
@@ -128,6 +129,7 @@ function listen(x::Array, sel::Array; collar=0.3, sr=16000)
     L = size(x,1)
     nr = size(sel, 1)
     selection = falses(nr)
+    input = Array(AbstractString, nr)
     for i=1:nr
         colstart, colstop = startstop(sel[i,:], collar, sr, L)
         start, stop = startstop(sel[i,:], 0, sr, L)
@@ -141,14 +143,15 @@ function listen(x::Array, sel::Array; collar=0.3, sr=16000)
             print("s: ")
             play(x[start:stop], sr)
             inp = readline(STDIN)
+            input[i] = chomp(inp)
             if inp[1] == 'r'
                 continue
             end
-            selection[i] = inp[1] == 's'
+            selection[i] = inp[1] in ['s', 'z']
             break
         end
     end
-    hcat(1:nr, sel)[selection,:]
+    hcat(1:nr, sel, input)[selection,:]
 end
 
 function listen(file::AbstractString, phone=["s", "sh"], thres=0.5)
@@ -163,7 +166,7 @@ function listen(file::AbstractString, phone=["s", "sh"], thres=0.5)
     sel = phonedetect(x, phonetab, phone, thres)
     norig = size(sel, 1)
     w, sr = wavread(abswav)
-    sel = listen(w, sel, sr=sr)
+    sel = listen(w, sel, collar=0.6, sr=sr)
     outf = "$base.s.sel"
     fd = open(outf, "w")
     nr = size(sel,1)
