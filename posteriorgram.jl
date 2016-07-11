@@ -2,7 +2,7 @@
 
 using Compat
 using WAV
-using MFCC
+# using MFCC
 using DataFrames
 
 function wavfilter(xsr)
@@ -144,11 +144,13 @@ function listen(x::Array, sel::Array; collar=0.3, sr=16000)
             play(x[start:stop], sr)
             inp = readline(STDIN)
             input[i] = chomp(inp)
-            if inp[1] == 'r'
+            words = split(inp)
+            if length(words) == 1 && words[1][1] == 'r'
                 continue
+            else
+                selection[i] = length(words) > 0
+                break
             end
-            selection[i] = inp[1] in ['s', 'z']
-            break
         end
     end
     hcat(1:nr, sel, input)[selection,:]
