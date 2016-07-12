@@ -2,7 +2,7 @@
 
 using Compat
 using WAV
-# using MFCC
+using MFCC
 using DataFrames
 
 function wavfilter(xsr)
@@ -130,6 +130,7 @@ function listen(x::Array, sel::Array; collar=0.3, sr=16000)
     nr = size(sel, 1)
     selection = falses(nr)
     input = Array(AbstractString, nr)
+
     for i=1:nr
         colstart, colstop = startstop(sel[i,:], collar, sr, L)
         start, stop = startstop(sel[i,:], 0, sr, L)
@@ -184,7 +185,7 @@ function cog(p; minf=0, maxf=8000)
     p = vec(p)
     energy = sum(p)
     nf = size(p,1)
-    freq = [minf:(maxf-minf)/nf:maxf][1:nf]
+    freq = collect(minf:(maxf-minf)/nf:maxf)[1:nf]
     return dot(p,freq) / energy
 end
 
@@ -208,11 +209,15 @@ end
 function readsel(file::AbstractString)
     sel = readdlm(file)
     wavf = unique(sel[:,1])[1]
-    sel = int(sel[:,end-1:end])
+    sel = sel[:,3:end]
 #    tmp = tempname() * ".wav"
 #    run(`sox $wavf -r 16000 $tmp`)
-    wav, sr = wavread(wavf) |> wavfilter
-    return sel, wav, sr
+    try
+        wav, sr = wavread(wavf) |> wavfilter
+        return sel, wav, sr
+    catch
+        return sel, nothing, nothing
+    end
 end
 
 ## parallel:
@@ -223,12 +228,27 @@ end
 function cog_files{S<:AbstractString}(filelist::Vector{S})
     @parallel (vcat) for f in filelist
         s, x, sr = readsel(f)
-        s = s[find(diff(s,2) .≥ 2), :] # only consider entries of at least 30 ms for powspec wintime
-        c = compute_cog_selection(x, s, sr)
-        subj, cohort, part = split(replace(basename(f), ".s.sel", ""), "-", 3)
-        subj, sex, r = [subj[r] for r in (1:4, 5, 6:6)]
-        DataFrame(cog=c, subject=subj, sex=sex, r=int(r), c=int(cohort), part=part)
+        if x != nothing
+            s = s[find(s[:,2]-s[:,1] .≥ 2), :] # only consider entries of at least 30 ms for powspec wintime
+            c = compute_cog_selection(x, s[:,1:2], sr)
+            subj, cohort, part = split(replace(basename(f), ".s.sel", ""), "-", limit=3)
+            subj, sex, r = [subj[r] for r in (1:4, 5, 6:6)]
+            DataFrame(cog=c, subject=subj, sex=sex, r=parse(Int, r), c=parse(Int, cohort), part=part,
+            start=s[:,1]/100, stop=s[:,2]/100, phoneme=s[:,3], word=s[:,4])
+        else
+            println("Could not process ", f)
+            DataFrame()
+        end
     end
+end
+
+function run_cog(listfile::AbstractString="sel.list")
+    sel = vec(readdlm(listfile, ASCIIString))
+    addprocs(4)
+    @everywhere include("posteriorgram.jl")
+    res = cog_files(sel)
+    rmprocs(workers())
+    return res
 end
 
 ## main
