@@ -208,6 +208,7 @@ end
 ## reads a .s.sel file from disc and the corresponding sound file
 function readsel(file::AbstractString)
     sel = readdlm(file)
+    sel = sel[sel[:,1] .!= "", :] ## sometimes we see empty lines
     wavf = unique(sel[:,1])[1]
     sel = sel[:,3:end]
 #    tmp = tempname() * ".wav"
@@ -229,6 +230,7 @@ function cog_files{S<:AbstractString}(filelist::Vector{S})
     @parallel (vcat) for f in filelist
         s, x, sr = readsel(f)
         if x != nothing
+            println(f)
             s = s[find(s[:,2]-s[:,1] .≥ 2), :] # only consider entries of at least 30 ms for powspec wintime
             c = compute_cog_selection(x, s[:,1:2], sr)
             subj, cohort, part = split(replace(basename(f), ".s.sel", ""), "-", limit=3)
