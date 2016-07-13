@@ -85,9 +85,9 @@ function addent(x, tab)
 end
 
 function phonedetect(x, phonetab, phone, thres=0.5, gap=5)
-    rows = findin(phonetab, [phone])
+    rows = findin(phonetab, collect(phone))
     length(rows) > 0 || error("Phone $phone not found")
-    hit = [0, int(vec(sum(x[rows,:],1)) .> thres), 0]
+    hit = [0; round(Int, vec(sum(x[rows,:],1)) .> thres); 0]
     d = diff(hit)
     starts = find(d .== 1)
     stops = find(d .== -1)-1
@@ -122,7 +122,7 @@ end
 limit(x, mi, ma) = max(mi, min(ma, x))
 
 function startstop(sel, collar, sr, L)
-    limit(iround((sel[1]/100 - collar)*sr), 1, L), limit(iround((sel[2]/100 + collar)*sr), 1, L)
+    limit(round(Int, (sel[1]/100 - collar)*sr), 1, L), limit(round(Int, (sel[2]/100 + collar)*sr), 1, L)
 end
 
 function listen(x::Array, sel::Array; collar=0.3, sr=16000)
